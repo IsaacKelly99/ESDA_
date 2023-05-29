@@ -1,0 +1,363 @@
+---
+title: "Analisis espacial Boston Housing"
+author: "Isaac Kelly Ramirez / a00829261"
+date: '2023-05-12'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united 
+    code_download: true
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# Analisis espacial Boston Housing
+
+## Informacion acerca del ESDA
+
+### 1.-
+
+* autocorrelación espacial: indica la similitud o la relación espacial entre los valores de una variable en diferentes ubicaciones geográficas.
+
+* autocorrelación espacial positiva:  significa que los valores de una variable están correlacionados positivamente con los valores de la misma variable en las ubicaciones geográficas cercanas.
+
+* autocorrelación espacial negativa: significa que los valores de una variable están correlacionados negativamente con los valores de la misma variable en las ubicaciones geográficas cercanas.
+
+### 2.- Diferencias entre estacionareidad y no estacionareidad en contexto espacial
+
+* presencia de estacionareidad en contexto espacial: La estacionariedad espacial se refiere a la NO VARIACION de la autocorrelación espacial a lo largo del espacio. Esto significa que la autocorrelación espacial NO ES diferente en diferentes áreas geográficas.
+esto quiere decir que la media y mediana de la variable NO cambian de acuerdo con el contexto geografico o ubicacion
+
+* no estacionareidad en contexto espacial: La no estacionariedad espacial se refiere a la variación de la autocorrelación espacial a lo largo del espacio. Esto significa que la autocorrelación espacial puede ser diferente en diferentes áreas geográficas.
+esto quiere decir que la media y mediana de la variable cambian de acuerdo con el contexto geografico o ubicacion
+
+### 3.- Diferencias entre el Analisis exploratorio espacial de datos (ESDA) y analisis exploratorio de datos (EDA)
+
+* Tipo de datos necesarios:EDA se aplica a datos en general, mientras que ESDA requiere datos con una estructura espacial con una ubicación geográfica relacionada.
+
+* El objetivo principal del EDA es descubrir patrones y relaciones interesantes entre las variables de los datos utilizando metodos estadisticos y visualizaciones graficas. mientras que el objetivo principal de ESDA es analizar y visualizar patrones espaciales y relaciones entre los datos relacionados geográficamente.
+
+* EDA se enfoca en técnicas como histogramas, gráficos de dispersión, boxplots, entre otros. 
+* ESDA se enfoca en técnicas como gráficos de dispersión espacial, mapas de calor, índices de autocorrelación espacial, entre otros.
+
+* En el EDA, la interpretación de los resultados se basa en la exploración visual de los gráficos y resúmenes estadísticos. 
+* En el ESDA, la interpretación de los resultados se basa en la identificación de patrones, relaciones espaciales y en la interpretación de los índices de autocorrelación espacial.
+
+### 4.- consecuencias de identificar autocorrelación espacial en los residuales de un modelo de regresión estimado
+
+* La autocorrelación espacial en los residuales puede hacer que los coeficientes de regresión estimados sean sesgados e imprecisos debido a que los coeficientes de regresión capturan tanto la influencia de las variables explicativas como la influencia de los factores espaciales no observados.
+
+* tambien puede afectar la precisión de las predicciones realizadas, como la significancia de los coeficientes de regresión y los intervalos de confianza. La autocorrelación espacial puede hacer que la varianza de los coeficientes de regresión estimados sea subestimada, lo que puede llevar a conclusiones erróneas sobre la significancia de las variables explicativas.
+
+* La autocorrelación espacial en los residuales puede hacer que la interpretación de los resultados del modelo sea sesgada ya que la autocorrelación espacial puede hacer que la influencia de los factores espaciales no observados se atribuya incorrectamente a las variables.
+
+### 5.- Como puede el proceso de análisis espacial de datos mejorar las herramientas de Descriptive Analytics y Predictive Analytics en un contexto de Inteligencia de Negocios.
+
+El añadir a las variables un contexto geografico o una referencia geografica puede ayudar tanto a los modelos predictivos y analiticos a proporcionar predicciones mas precisas al encontrar relacion geografica entre los modelos, ya que los modelos convencionales carecen de la capacidad para analizar esta relacion geografica, el preoceso de analisis espacial tambien puede ayudar a identificar tendencias temporales y espaciales en los datos. Por ejemplo, los datos de ventas pueden ser analizados espacialmente a lo largo del tiempo para identificar patrones de crecimiento o declive en áreas geográficas específicas, puede tambien ayudar a optimizar la ubicación de recursos, como tiendas o instalaciones, en función de la ubicación de los clientes y otros factores espaciales relevantes.
+
+En el contexto de inteligencia de negocios puede ayudarnos a entender mejor como se comporta nuestro entorno, que areas tienen una mayor densidad de clientes o crecimiento economico, en que areas se agrupa nuestro cliente optimo o que fenomenos geograficos como la presencia de vialidades o crimen nos pueden afectar en nuestras operaciones empresariales.
+
+# Segunda parte
+
+```{r}
+library(sf)
+library(tmap)
+library(spdep)
+library(rgdal)
+library(tidyverse)
+library(tigris)
+library(mapview)
+library(GWmodel)    
+library(regclass)
+library(viridis)
+library(grid)
+library(RColorBrewer)
+library(rgeoda)
+library(sjPlot)
+library(jtools)
+library(dlookr)
+library(SpatialML)
+library(spgwr)
+library(grid)
+library(corrplot)
+library(maptools)
+library(ncf)
+```
+
+base de datos a utilizar
+
+```{r}
+###
+library(maptools)
+data(columbus) ### dataset
+columbus_shp <- readShapePoly(system.file("etc/shapes/columbus.shp",package="spdep"))
+col.gal.nb <- read.gal(system.file("etc/weights/columbus.gal", package="spdep"))
+columbus[, c(15,22)] <- NULL
+#View(columbus)
+```
+
+## estadisticas descriptivas de la base de datos
+
+```{r}
+summary(columbus) 
+```
+
+## Pruebas de normalidad
+```{r echo=FALSE}
+# Histogramas
+plot_normality(columbus, HOVAL, INC, CRIME, PLUMB, DISCBD, AREA, PERIMETER) 
+```
+
+Se hara una transformacion a la variable dependiente HOVAL para normalizarla, al igual que plumb y area, ya que presentan un mayor sesgo
+
+```{r}
+columbus$HOVAL = log(columbus$HOVAL)
+columbus$PLUMB = log(columbus$PLUMB)
+columbus$AREA = log(columbus$AREA)
+```
+
+
+## Boxplots
+
+```{r}
+cute_boxplots <- function(data) {
+  for (col in colnames(data)) {
+    plot_data <- data.frame(group = col, value = data[[col]])
+    p <- ggplot(plot_data, aes(x = group, y = value, fill = group)) +
+      geom_boxplot(alpha = 0.8, outlier.shape = NA, width = 0.4, color = "black") +
+      geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+      scale_fill_manual(values = c("#F8766D", "#00BFC4", "#7CAE00")) +
+      labs(x = "Group", y = col) +
+      theme_classic()
+    print(p)
+  }
+}
+
+cute_boxplots(columbus)
+```
+
+## Matriz de correlación:
+
+```{r}
+cor_matrix <- cor(columbus)
+corrplot(cor_matrix, method = "number")
+```
+
+De acuerdo con nuestra Matriz de correlacion la variable dependiente HOVAL se encuentra principalmente relacionada con las variables:
+* crimen: con una relacion negativa de -.57
+* inc: con una relacion negativa de -7
+* discbd: con una relacion positiva de .49
+* CP: con una relacion negativa de -.49
+
+
+# Análisis Exploratorio Espacial de los Datos (ESDA)
+
+## Autocorrelacion espacial global en variables de interes
+
+### Metodo Queen
+
+```{r}
+swm_queen <- poly2nb(columbus_shp, queen = TRUE)
+```
+
+### Metodo Rook 
+```{r}
+swm_rook <- poly2nb(columbus_shp, queen = FALSE)
+```
+```{r}
+rswm_queen <- nb2listw(swm_queen, style = "W", zero.policy = TRUE)
+rswm_rook  <- nb2listw(swm_rook, style = "W", zero.policy = TRUE)
+```
+
+### Global Moran test
+
+```{r}
+moran.test(columbus$HOVAL, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+Podemos encontrar auto correlacion global con la variable de Hoval
+el p value es menor a .05 por lo tanto se rechaza la hipotesis nula y se acepta la hipotesis alternativa de que existe autocorrelacion espacial 
+
+```{r}
+moran.test(columbus$CRIME, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+Podemos encontrar auto correlacion global con la variable de CRIME
+el p value es menor a .05 por lo tanto se rechaza la hipotesis nula y se acepta la hipotesis alternativa de que existe autocorrelacion espacial 
+
+```{r}
+moran.test(columbus$PLUMB, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+Podemos encontrar que no hay auto correlacion global con la variable de PLUMB
+el p value es mayor a .05 por lo tanto se acepta la hipotesis nula
+
+```{r}
+moran.test(columbus$DISCBD, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+Podemos encontrar auto correlacion global con la variable de DISCBD
+el p value es menor a .05 por lo tanto se rechaza la hipotesis nula y se acepta la hipotesis alternativa de que existe autocorrelacion espacial 
+
+```{r}
+moran.test(columbus$INC, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+Podemos encontrar auto correlacion global con la variable de INC
+el p value es menor a .05 por lo tanto se rechaza la hipotesis nula y se acepta la hipotesis alternativa de que existe autocorrelacion espacial 
+
+## Autocorrelación espacial LOCAL en las variables de interes
+
+```{r}
+lisa(columbus_shp$X, columbus_shp$Y, columbus_shp$HOVAL, 100, resamp = 999, latlon = FALSE, quiet = FALSE)
+```
+En este caso dada la funcion LISA y los valores P arrojados podriamos ver que solo en la minoria de casos existe autocorrelacion LOCAL significativa.
+
+```{r}
+columbus_shp$sp_CRIME<-lag.listw(rswm_queen,columbus_shp$CRIME,zero.policy=TRUE) 
+qtm(columbus_shp, "sp_CRIME")
+```
+
+Podemos ver que existe en la ciudad una mayor concentracion de crimen en las areas cercanas al centro de la ciudad
+
+```{r}
+columbus_shp$sp_HOVAL<-lag.listw(rswm_queen,columbus_shp$HOVAL,zero.policy=TRUE) 
+qtm(columbus_shp, "sp_HOVAL")
+```
+
+De acuerdo con este mapa aquellas casas ubicadas en el centro de la ciudad tienden a tener un menor valor que aquellas a las afueras.
+
+```{r}
+columbus_shp$sp_PLUMB<-lag.listw(rswm_queen,columbus_shp$PLUMB,zero.policy=TRUE) 
+qtm(columbus_shp, "PLUMB")
+```
+
+De acuerdo con este mapa las casas en el centro de la ciudad tienden a tener mejor acceso a servicios de drenaje que aquellas a las afueras, sin embargo las casas en las afueras tienen un mayor valor.
+
+```{r}
+columbus_shp$sp_OPEN<-lag.listw(rswm_queen,columbus_shp$OPEN,zero.policy=TRUE) 
+qtm(columbus_shp, "OPEN")
+```
+De igual forma el espacio abierto en las colonias tiende a ser mayor a las afueras de la ciudad que en el centro, por lo tanto puede existir una correlacion con el precio.
+
+
+Podemos observar que las casas en el centro de la ciudad tienden a tener mas acceso a servicios de plomeria que aquellas a las afueras
+
+## Modelos de prediccion
+
+## Spatial Autoregressive Model (SAR)
+
+```{r}
+spatial_autoregressive = lagsarlm(log(HOVAL) ~ PLUMB+OPEN+CRIME, data = columbus_shp, rswm_queen, Durbin = FALSE)
+summary(spatial_autoregressive)
+```
+
+
+### spatial durbin model
+
+```{r}
+spatial_durbin = lagsarlm(log(HOVAL) ~ OPEN + CRIME + PLUMB + PERIMETER+AREA, data = columbus_shp, rswm_queen)
+summary(spatial_durbin)
+```
+
+### Geographic Weighted Regression (GWR)
+
+```{r}
+bw1 <- bw.gwr(HOVAL ~OPEN + CRIME + PLUMB + PERIMETER+AREA, 
+              approach = "AIC", adaptive = T, data = columbus_shp)
+
+m.gwr <- gwr.basic(HOVAL ~ OPEN + CRIME + PLUMB + PERIMETER+AREA, 
+                   adaptive = T, data = columbus_shp, bw = bw1)  
+m.gwr
+```
+
+```{r}
+gwr_sf = st_as_sf(m.gwr$SDF)
+gwr_sf$y_predicted <- exp(gwr_sf$yhat)
+
+tm_shape(gwr_sf) +
+  tm_polygons(col = "y_predicted", palette="YlOrRd", style="quantile", n=8, title="Rate per 10,0000") +
+   tm_layout(title= 'HOVAL',  title.position = c('right', 'top'))
+```
+
+## Diagnóstico de Resultados Estimados
+
+### Multicolinealidad
+
+```{r}
+lm_auto <- lm(HOVAL ~ INC + CRIME + PLUMB+DISCBD+Y, data =  columbus)
+summary(lm_auto)
+```
+Se dejaron para el modelo solo las variables de INC, CRIME, PLUMB, "Y" y DISCBD
+ya que solo estas son significativas
+se logro un p value bastante bajo por lo tanto se rechaza la hipotesis nula y se acepta la hipotesis alternativa de que nuestro modelo puede predecir la variable dependiente
+```{r}
+aic_lm = AIC(lm_auto)
+aic_lm
+```
+El valor de AIC arrojado por este modelo es bastante bajo
+
+```{r}
+VIF(lm_auto)
+```
+Las variables seleccionadas arrojaron un resultado de VIF mayor a 1, por lo tanto existe una intensa multicolinealidad entre las variables seleccionadas para el modelo lineal, DISCBD, PLUMB Y CRIME tienen el mayor valor VIF.
+
+
+## Lagrange Multiplier Diagnostic for Spatial Dependence (LMlag)
+
+```{r}
+lm.LMtests(lm_auto, rswm_queen, test = c("RLMlag"))
+```
+
+## Lagrange Multiplier Diagnostic for Spatial Error Dependence (LMerr)
+
+```{r}
+lm.LMtests(lm_auto, rswm_queen, test = c("LMerr"))
+```
+
+## Autocorrelación Espacial de los residuales estimados (εi)
+
+```{r}
+gwr_sf$exp_residuals <- exp(gwr_sf$residual)
+tm_shape(gwr_sf) +
+  tm_polygons(col = "exp_residuals", palette="Greys", style="quantile", n=8, title="Residuals") +
+  tm_layout(title= 'Regression Residuals',  title.position = c('right', 'top'))
+```
+
+## Selección de Modelo
+
+### Especificar e interpretar criterio de selección de modelo
+
+```{r}
+m_ = c('Linear Regression','SAR','Spatial durbin model',"GWR")
+AIC = c(aic_lm,
+       summary(spatial_autoregressive)$AIC,
+       summary(spatial_durbin)$AIC,
+       m.gwr$GW.diagnostic$AIC)
+valores_ = data.frame(m_, AIC)
+valores_
+```
+
+Tenemos que en este caso el modelo linear arrojo los mejores resultados con el AIC mas bajo, el modelo del SAR arrojo tambien un AIC bastante bajo sin embargo el P value de este modelo (mayor a .05) nos hace descartarlo como significativo para predecir la variable dependiente.
+
+## hallazgos identificados a partir de los resultados de ESDA y del modelo seleccionado
+
+### 1.- 
+
+De acuerdo con el modelo linear la variable mas significativa es "PLUMB" con una relacion positiva de .23, por lo tanto parece ser que las casas SIN acceso a servicios de drenaje tienen un valor mucho mas elevado que aquellas que carecen de dichos servicios; esto puede deberse de igual forma a que son aquellas a las afueras de la ciudad.
+
+### 2.-
+
+la variable de INC, tiene la segunda relacion positiva mas significativa en nuestro modelo, por lo tanto el precio de la casas tiende a elevarse mas de acuerdo al ingreso de quienes habitan en ellas.
+
+### 3.- 
+
+de acuerdo con el modelo Spatial durbin y SAR la variable perimetro tiene una relacion negativa de -.4 con nuestra variable dependiente, indicando que a mayor perimetro menor tiende a ser el precio de la propiedad.
+
+### 4.- 
+
+Si analizamos los mapas podemos ver que existe una relacion entre el crimen, que tiende a acercarse al centro de la ciudad, con el precio que tiende a ser mayor en areas lejos del centro de la ciudad y en areas con menor crimen
+
+### 5.-
+
+Parece ser que las casas en las afueras tienen un mayor valor que aquellas en el centro, por las variables ya mencionadas anteriormente, el crimen que se acumula en el centro de la ciudad, el nivel de ingreso de aquellas personas que viven en las afueras y tal vez pueden darse el lujo de vivir en una zona mas segura y con mas areas abiertas, a pesar de las carencias en cuestion de servicios de drenaje. 
+Variables como perimetro y drenaje, de las cuales podria intuirse que elevarian el precio parecen tener una relacion negativa, no por el hecho de que sean desventajas en una propiedad si no por que las casas con estas caracteristicas tienden a agruparse en el centro de la ciudad, junto con las desventajas que esto trae consigo.
+
+
